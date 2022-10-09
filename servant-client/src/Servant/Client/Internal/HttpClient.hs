@@ -65,6 +65,7 @@ import           Network.HTTP.Media
 import           Network.HTTP.Types
                  (hContentType, renderQuery, statusIsSuccessful, urlEncode, Status)
 import           Servant.Client.Core
+import           Servant.Client.Core.Request
 
 import qualified Network.HTTP.Client         as Client
 import qualified Servant.Types.SourceT       as S
@@ -239,14 +240,17 @@ defaultMakeClientRequest burl r = return Client.defaultRequest
                  <> toLazyByteString (requestPath r)
     , Client.queryString = buildQueryString . toList $ requestQueryString r
     , Client.requestHeaders =
-      maybeToList acceptHdr ++ maybeToList contentTypeHdr ++ headers
+        maybeToList acceptHdr ++ maybeToList contentTypeHdr ++ headers
     , Client.requestBody = body
     , Client.secure = isSecure
     }
   where
     -- Content-Type and Accept are specified by requestBody and requestAccept
     headers = filter (\(h, _) -> h /= "Accept" && h /= "Content-Type") $
-        toList $ requestHeaders r
+        fmap unwrapHeader $ toList $ requestHeaders r
+
+    unwrapHeader (PublicHeader h) = h
+    unwrapHeader (SensitiveHeader h) = h
 
     acceptHdr
         | null hs   = Nothing

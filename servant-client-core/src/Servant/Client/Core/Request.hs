@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable    #-}
 {-# LANGUAGE DeriveFoldable        #-}
 {-# LANGUAGE DeriveFunctor         #-}
@@ -12,6 +14,7 @@ module Servant.Client.Core.Request (
     Request,
     RequestF (..),
     RequestBody (..),
+    ServantHeader (..),
     defaultRequest,
     -- ** Modifiers
     addHeader,
@@ -62,7 +65,7 @@ data RequestF body path = Request
   , requestQueryString :: Seq.Seq QueryItem
   , requestBody        :: Maybe (body, MediaType)
   , requestAccept      :: Seq.Seq MediaType
-  , requestHeaders     :: Seq.Seq Header
+  , requestHeaders     :: Seq.Seq ServantHeader
   , requestHttpVersion :: HttpVersion
   , requestMethod      :: Method
   } deriving (Generic, Typeable, Eq, Functor, Foldable, Traversable)
@@ -89,9 +92,11 @@ instance (Show a, Show b) =>
         . showString "}"
         )
        where
-        redactSensitiveHeader :: Header -> Header
-        redactSensitiveHeader ("Authorization", _) = ("Authorization", "<REDACTED>")
+        redactSensitiveHeader :: ServantHeader -> ServantHeader
+        redactSensitiveHeader (PublicHeader ("Authorization", val)) =
+          SensitiveHeader ("Authorization", val)
         redactSensitiveHeader h = h
+
 instance Bifunctor RequestF where bimap = bimapDefault
 instance Bifoldable RequestF where bifoldMap = bifoldMapDefault
 instance Bitraversable RequestF where
@@ -115,6 +120,15 @@ instance (NFData path, NFData body) => NFData (RequestF body path) where
         rnfB (Just (b, mt)) = rnf b `seq` mediaTypeRnf mt
 
 type Request = RequestF RequestBody Builder
+
+data ServantHeader = SensitiveHeader Header | PublicHeader Header
+  deriving (Eq, Generic)
+
+instance NFData ServantHeader
+
+instance Show ServantHeader where
+  show (SensitiveHeader (hName, _)) = show (hName, "<REDACTED>")
+  show (PublicHeader header) = show header
 
 -- | The request body. R replica of the @http-client@ @RequestBody@.
 data RequestBody
@@ -171,7 +185,9 @@ encodeQueryParamValue = LBS.toStrict . Builder.toLazyByteString . toEncodedUrlPi
 --
 addHeader :: ToHttpApiData a => HeaderName -> a -> Request -> Request
 addHeader name val req
-  = req { requestHeaders = requestHeaders req Seq.|> (name, toHeader val)}
+  = req { requestHeaders = requestHeaders req
+            Seq.|> PublicHeader (name, toHeader val)
+        }
 
 -- | Set body and media type of the request being constructed.
 --

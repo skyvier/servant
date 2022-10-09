@@ -64,6 +64,7 @@ import qualified Network.Http.Client        as Client
 import qualified Network.Http.Types         as Client
 import qualified Servant.Types.SourceT      as S
 import qualified System.IO.Streams          as Streams
+import           Servant.Client.Core.Request
 
 -- | The environment in which a request is run.
 --
@@ -220,7 +221,10 @@ requestToClientRequest burl r = (request, body)
 
     -- Content-Type and Accept are specified by requestBody and requestAccept
     headers = filter (\(h, _) -> h /= "Accept" && h /= "Content-Type") $
-        toList $ requestHeaders r
+        fmap unwrapHeader $ toList $ requestHeaders r
+
+    unwrapHeader (PublicHeader h) = h
+    unwrapHeader (SensitiveHeader h) = h
 
     acceptHdr
         | null hs   = Nothing

@@ -84,6 +84,7 @@ hasClientSpec = describe "HasClient" $ around (testWithApplication $ return app)
       <- getIntClient tok mgr (BaseUrl Http "localhost" port "")
     stat `shouldBe` status401
 
+  it "does not expose the token"
 
 getIntClient :: Token -> Manager -> BaseUrl -> IO (Either ClientError Int)
 #if MIN_VERSION_servant(0,13,0)

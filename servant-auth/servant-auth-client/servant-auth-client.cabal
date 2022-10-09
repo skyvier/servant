@@ -37,6 +37,8 @@ library
     , servant-auth        == 0.4.*
     , servant             >= 0.13     && < 0.20
     , servant-client-core >= 0.13     && < 0.20
+    , text
+    , case-insensitive
 
   exposed-modules:
       Servant.Auth.Client

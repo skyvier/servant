@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE CPP                        #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE UndecidableInstances       #-}
@@ -8,44 +10,64 @@
 module Servant.Auth.Client.Internal where
 
 import qualified Data.ByteString    as BS
-import           Data.Monoid
+import qualified Data.ByteString.Char8 as C8
 import           Data.Proxy         (Proxy (..))
 import           Data.String        (IsString)
-import           GHC.Exts           (Constraint)
+import           Data.Text.Encoding (decodeUtf8)
+import           Data.CaseInsensitive
 import           GHC.Generics       (Generic)
 import           Servant.API        ((:>))
 import           Servant.Auth
 
+import           Servant.API (ToHttpApiData(..))
 import           Servant.Client.Core
-import           Data.Sequence ((<|))
+import           Servant.Client.Core.Auth
+
+import GHC.TypeLits
+import Data.Kind
 
 -- | A simple bearer token.
 newtype Token = Token { getToken :: BS.ByteString }
   deriving (Eq, Show, Read, Generic, IsString)
 
+instance ToHttpApiData Token where
+  toUrlPiece (Token bs) = decodeUtf8 bs
+  toHeader (Token bs) = bs
+
 type family HasBearer xs :: Constraint where
   HasBearer (Bearer ': xs) = ()
+  HasBearer (NamedBearer s ': xs) = ()
   HasBearer (JWT ': xs) = ()
   HasBearer (x ': xs)   = HasBearer xs
   HasBearer '[]         = BearerAuthNotEnabled
 
+type family GetBearerHeaderName (xs :: [Type]) :: Symbol where
+  GetBearerHeaderName (NamedBearer ('Just sym) ': xs) = sym
+  GetBearerHeaderName (x ': xs) = GetBearerHeaderName xs
+  GetBearerHeaderName '[] = "Authorization"
+
 class BearerAuthNotEnabled
+
+class CustomHeaderAuthNotEnabled
 
 -- | @'HasBearer' auths@ is nominally a redundant constraint, but ensures we're not
 -- trying to send a token to an API that doesn't accept them.
-instance (HasBearer auths, HasClient m api) => HasClient m (Auth auths a :> api) where
+instance (KnownSymbol (GetBearerHeaderName auths), HasBearer auths, HasClient m api) => HasClient m (Auth auths a :> api) where
   type Client m (Auth auths a :> api) = Token -> Client m api
 
   clientWithRoute m _ req (Token token)
-    = clientWithRoute m (Proxy :: Proxy api)
-    $ req { requestHeaders = ("Authorization", headerVal) <| requestHeaders req  }
+    = let headerName = toHeaderName $ symbolVal (Proxy @(GetBearerHeaderName auths))
+      in clientWithRoute m (Proxy :: Proxy api)
+        $ addSensitiveHeader headerName headerVal req
       where
-        headerVal = "Bearer " <> token
+        headerVal = Token $ "Bearer " <> token
+
+        toHeaderName :: String -> CI BS.ByteString
+        toHeaderName = mk . C8.pack
 
 #if MIN_VERSION_servant_client_core(0,14,0)
   hoistClientMonad pm _ nt cl = hoistClientMonad pm (Proxy :: Proxy api) nt . cl
 #endif
-
 
 -- * Authentication combinators
 
@@ -62,3 +84,5 @@ instance (HasBearer auths, HasClient m api) => HasClient m (Auth auths a :> api)
 -- If you want to implement Bearer authentication in your server, you have to
 -- choose a specific combinator, such as 'JWT'.
 data Bearer
+
+data NamedBearer (mHeaderName :: Maybe Symbol)
